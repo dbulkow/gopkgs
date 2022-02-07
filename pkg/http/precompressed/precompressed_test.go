@@ -1,0 +1,95 @@
+package precompressed
+
+import (
+	"bytes"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+//go:generate testdata/prep
+
+func TestPrecompressed(t *testing.T) {
+	tests := []struct {
+		name      string
+		extension string
+		accept    string
+	}{
+		{
+			name:      "no compression",
+			extension: "",
+			accept:    "",
+		},
+		{
+			name:      "gzip compression",
+			extension: ".gz",
+			accept:    "gzip",
+		},
+		{
+			name:      "brotli compression",
+			extension: ".br",
+			accept:    "br",
+		},
+	}
+
+	filename := "testdata/page.html"
+
+	info, err := os.Stat(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tval := strconv.FormatInt(info.ModTime().Unix(), 36)
+	sval := strconv.FormatInt(info.Size(), 36)
+	fileEtag := fmt.Sprintf("%s%s", tval, sval)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pc := &PreCompressed{root: "testdata"}
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/page.html", nil)
+
+			if tt.accept != "" {
+				r.Header.Set("Accept-Encoding", tt.accept)
+			}
+
+			pc.ServeHTTP(w, r)
+
+			result := w.Result()
+
+			body, err := ioutil.ReadAll(result.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			page, err := ioutil.ReadFile(filename + tt.extension)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctype := result.Header.Get("Content-Type")
+			if !strings.Contains(ctype, "text/html") {
+				t.Fatalf(`expected Content-Type "text/html" got "%s"`, ctype)
+			}
+
+			encoding := result.Header.Get("Content-Encoding")
+			if encoding != tt.accept {
+				t.Fatalf(`expected Content-Encoding == "%s" got "%s"`, tt.accept, encoding)
+			}
+
+			if !bytes.Equal(body, page) {
+				t.Fatal("body does not match test data")
+			}
+
+			etag := result.Header.Get("ETag")
+			if etag != fileEtag {
+				t.Fatalf(`expected ETag "%s" got "%s"`, fileEtag, etag)
+			}
+		})
+	}
+}

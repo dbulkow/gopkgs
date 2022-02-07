@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cd testdata
+gzip -9vc page.html > page.html.gz
+brotli -9vc page.html > page.html.br
