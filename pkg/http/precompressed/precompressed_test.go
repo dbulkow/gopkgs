@@ -49,7 +49,7 @@ func TestPrecompressed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pc := &PreCompressed{root: "testdata"}
+			pc := PreCompressed("testdata")
 
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/page.html", nil)
