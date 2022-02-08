@@ -58,8 +58,7 @@ func TestCompress(t *testing.T) {
 	zw.Close()
 	gzipdata := compressed.Bytes()
 
-	compressed.Reset()
-
+	compressed = bytes.Buffer{}
 	zw, _ = flate.NewWriter(&compressed, flate.DefaultCompression)
 	zw.Write([]byte(testdata))
 	zw.Close()
