@@ -31,22 +31,71 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"strconv"
 	"strings"
 )
 
+type dataRecorder struct {
+	header      http.Header
+	shadow      http.Header
+	body        bytes.Buffer
+	codeWritten bool
+	code        int
+}
+
+func newDataRecorder() *dataRecorder {
+	dr := &dataRecorder{
+		header: make(map[string][]string),
+		shadow: make(map[string][]string),
+	}
+	return dr
+}
+
+func (dr *dataRecorder) Write(buf []byte) (int, error) {
+	if !dr.codeWritten {
+		dr.WriteHeader(http.StatusOK)
+	}
+	return dr.body.Write(buf)
+}
+
+func (dr *dataRecorder) WriteHeader(code int) {
+	dr.code = code
+	dr.codeWritten = true
+
+	for k, v := range dr.header {
+		dr.shadow[k] = v
+	}
+}
+
+func (dr *dataRecorder) Header() http.Header {
+	return dr.header
+}
+
+func (dr *dataRecorder) finish() {
+	var found bool
+	for k := range dr.shadow {
+		if strings.ToLower(k) == "content-type" {
+			found = true
+		}
+	}
+
+	if !found {
+		ctype := http.DetectContentType(dr.body.Bytes()[:512])
+		dr.shadow.Set("Content-Type", ctype)
+	}
+}
+
 func Compress(logger *log.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		recorder := httptest.NewRecorder()
+		recorder := newDataRecorder()
 		next.ServeHTTP(recorder, r)
-		resp := recorder.Result()
-		body, _ := io.ReadAll(resp.Body)
+		recorder.finish()
+		body := recorder.body.Bytes()
 
 		// Check if client supports compression. Replaces body in
 		// response and sets content-length header if compression
 		// performed.
-		func() {
+		compress := func() {
 			accept := strings.Split(r.Header.Get("Accept-Encoding"), ",")
 
 			var compressed bytes.Buffer
@@ -92,9 +141,11 @@ func Compress(logger *log.Logger, next http.Handler) http.Handler {
 					return
 				}
 			}
-		}()
+		}
 
-		for k, v := range resp.Header {
+		compress()
+
+		for k, v := range recorder.shadow {
 			w.Header()[k] = v
 		}
 
