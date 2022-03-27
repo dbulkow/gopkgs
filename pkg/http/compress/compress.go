@@ -36,7 +36,7 @@ import (
 )
 
 type dataRecorder struct {
-	header      http.Header
+	headers     http.Header
 	shadow      http.Header
 	body        bytes.Buffer
 	codeWritten bool
@@ -45,8 +45,8 @@ type dataRecorder struct {
 
 func newDataRecorder() *dataRecorder {
 	dr := &dataRecorder{
-		header: make(map[string][]string),
-		shadow: make(map[string][]string),
+		headers: make(map[string][]string),
+		shadow:  make(map[string][]string),
 	}
 	return dr
 }
@@ -62,18 +62,20 @@ func (dr *dataRecorder) WriteHeader(code int) {
 	dr.code = code
 	dr.codeWritten = true
 
-	for k, v := range dr.header {
-		dr.shadow[k] = v
+	// save all values written before WriteHeader as headers
+	for k, v := range dr.shadow {
+		dr.headers[k] = v
 	}
 }
 
 func (dr *dataRecorder) Header() http.Header {
-	return dr.header
+	return dr.shadow
 }
 
+// generate a Content Type if one not provided
 func (dr *dataRecorder) finish() {
 	var found bool
-	for k := range dr.shadow {
+	for k := range dr.headers {
 		if strings.ToLower(k) == "content-type" {
 			found = true
 		}
@@ -81,7 +83,7 @@ func (dr *dataRecorder) finish() {
 
 	if !found {
 		ctype := http.DetectContentType(dr.body.Bytes()[:512])
-		dr.shadow.Set("Content-Type", ctype)
+		dr.headers.Set("Content-Type", ctype)
 	}
 }
 
@@ -145,11 +147,29 @@ func Compress(logger *log.Logger, next http.Handler) http.Handler {
 
 		compress()
 
-		for k, v := range recorder.shadow {
+		for k, v := range recorder.headers {
+			if k == "Trailer" {
+				continue
+			}
 			w.Header()[k] = v
 		}
 
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.Write(body)
+
+		// trailer keys are stored in the Headers with the key "Trailer"
+		var trailers []string
+		for k, v := range recorder.headers {
+			if k == "Trailer" {
+				trailers = v
+			}
+		}
+
+		// for each trailer key, send the provided values
+		for _, k := range trailers {
+			if v, found := recorder.headers[k]; found {
+				w.Header()[k] = v
+			}
+		}
 	})
 }
