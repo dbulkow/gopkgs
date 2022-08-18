@@ -126,3 +126,30 @@ func TestCompress(t *testing.T) {
 		})
 	}
 }
+
+func TestCompressTrailers(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	h := Compress(log.Default(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Hdr1", "HdrVal1")
+		w.Header().Set("Hdr2", "HdrVal2")
+		w.Header().Set("Trailer", "AtEnd1, AtEnd2")
+
+		w.WriteHeader(http.StatusOK)
+
+		w.Header().Set("AtEnd1", "EndVal1")
+		w.Header().Set("AtEnd2", "EndVal2")
+	}))
+
+	h.ServeHTTP(w, r)
+
+	result := w.Result()
+
+	for k, v := range result.Header {
+		t.Log(k, v)
+	}
+	for k, v := range result.Trailer {
+		t.Log(k, v)
+	}
+}

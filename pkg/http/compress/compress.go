@@ -82,7 +82,7 @@ func (dr *dataRecorder) finish() {
 	}
 
 	if !found {
-		ctype := http.DetectContentType(dr.body.Bytes()[:512])
+		ctype := http.DetectContentType(dr.body.Bytes())
 		dr.headers.Set("Content-Type", ctype)
 	}
 }
@@ -155,21 +155,13 @@ func Compress(logger *log.Logger, next http.Handler) http.Handler {
 		}
 
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		w.Write(body)
 
-		// trailer keys are stored in the Headers with the key "Trailer"
-		var trailers []string
-		for k, v := range recorder.headers {
-			if k == "Trailer" {
-				trailers = v
-			}
-		}
-
-		// for each trailer key, send the provided values
-		for _, k := range trailers {
-			if v, found := recorder.headers[k]; found {
+		for _, k := range recorder.headers["Trailer"] {
+			if v, found := recorder.shadow[k]; found {
 				w.Header()[k] = v
 			}
 		}
+
+		w.Write(body)
 	})
 }
